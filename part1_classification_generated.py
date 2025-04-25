@@ -104,6 +104,18 @@ for name, model in models.items():
     print(f"Tanítási idő: {training_times[name]:.4f} másodperc")
     print(f"Pontosság (Tanító halmaz): {accuracy_train:.4f}")
     print(f"Pontosság (Teszt halmaz): {accuracy_test:.4f}")
+
+    # --- Tanult paraméterek kiírása ---
+    if isinstance(model, LogisticRegression):
+        print(f"  LogReg Együtthatók (coef_) alakja: {model.coef_.shape}") # (n_classes, n_features) vagy (1, n_features) binárisnál
+        print(f"  LogReg Intercept (intercept_) alakja: {model.intercept_.shape}") # (n_classes,) vagy (1,) binárisnál
+    elif isinstance(model, SVC):
+        print(f"  SVM Támaszvektorok száma osztályonként (n_support_): {model.n_support_}")
+        # print(f"  SVM Támaszvektorok (support_vectors_) alakja: {model.support_vectors_.shape}") # Opcionális, lehet nagyon nagy
+    elif isinstance(model, GaussianNB):
+        print("  Naive Bayes modell tanítva (paraméterek: class_prior_, theta_, var_)") # Nincs egyszerűen értelmezhető együttható
+    # --- Paraméterek kiírása vége ---
+
     print("Osztályozási riport (Teszt halmaz):")
     print(report_test)
     print("Konfúziós mátrix (Teszt halmaz):")
@@ -123,8 +135,35 @@ for name, model in models.items():
 print("\n--- Összehasonlítás ---")
 print(f"{'Modell':<25} {'Tanítási idő (s)':<20} {'Tanuló pontosság':<20} {'Teszt pontosság':<20}")
 print("-" * 85)
-for name, metrics in results.items():
+table_data = []
+model_names = list(results.keys())
+for name in model_names:
+    metrics = results[name]
     print(f"{name:<25} {training_times[name]:<20.4f} {metrics['accuracy_train']:<20.4f} {metrics['accuracy_test']:<20.4f}")
+    # Adatok gyűjtése a táblázathoz
+    table_data.append([f"{training_times[name]:.4f}",
+                       f"{metrics['accuracy_train']:.4f}",
+                       f"{metrics['accuracy_test']:.4f}"])
+
+# --- Táblázat készítése az összefoglaló eredményekről ---
+fig, ax = plt.subplots(figsize=(10, 2)) # Méret beállítása
+ax.axis('tight')
+ax.axis('off')
+columns = ['Tanítási idő (s)', 'Tanuló pontosság', 'Teszt pontosság']
+the_table = ax.table(cellText=table_data,
+                     rowLabels=model_names,
+                     colLabels=columns,
+                     loc='center',
+                     cellLoc='center')
+
+the_table.auto_set_font_size(False)
+the_table.set_fontsize(10)
+the_table.scale(1.2, 1.2) # Méretarány növelése a jobb olvashatóságért
+
+plt.title('Modellek Összehasonlító Eredményei', y=1.1) # Cím hozzáadása feljebb tolva
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'summary_results_table.png'), bbox_inches='tight') # Mentés
+plt.show()
 
 
 # --- Hiperparaméter-hangolás (Példa: SVM 'C' paramétere) ---
@@ -156,8 +195,54 @@ best_svm = grid_search.best_estimator_
 y_pred_svm_best = best_svm.predict(X_test_scaled)
 accuracy_svm_best_test = accuracy_score(y_test, y_pred_svm_best)
 print(f"\nLegjobb SVM modell pontossága a teszt halmazon: {accuracy_svm_best_test:.4f}")
+# --- Legjobb SVM paraméterek kiírása ---
+print(f"  Legjobb SVM Támaszvektorok száma osztályonként (n_support_): {best_svm.n_support_}")
+# --- Paraméterek kiírása vége ---
 print("Osztályozási riport (Legjobb SVM, Teszt halmaz):")
 print(classification_report(y_test, y_pred_svm_best))
+
+# --- Tanulási/Tesztelési Pontosság az Iterációk Függvényében (Logisztikus Regresszió) ---
+print("\n--- Tanulási/Tesztelési Pontosság az Iterációk Függvényében (Logisztikus Regresszió) ---")
+
+iterations = [1, 2, 3, 4, 5, 10, 20, 50, 100, 200, 500, 1000] # Kipróbált iterációszámok
+train_accuracies_lr = []
+test_accuracies_lr = []
+
+# Figyelmeztetések ideiglenes kikapcsolása (ConvergenceWarning miatt)
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+for n_iter in iterations:
+    # Modell létrehozása az adott iterációszámmal
+    # lr_iter = LogisticRegression(random_state=random_state, max_iter=n_iter, multi_class='auto', solver='lbfgs') # Solver explicit megadása - RÉGI
+    lr_iter = LogisticRegression(random_state=random_state, max_iter=n_iter, solver='lbfgs') # Solver explicit megadása - ÚJ (multi_class eltávolítva)
+    # Tanítás
+    lr_iter.fit(X_train_scaled, y_train)
+    # Pontosság számítása
+    train_acc = lr_iter.score(X_train_scaled, y_train)
+    test_acc = lr_iter.score(X_test_scaled, y_test)
+    train_accuracies_lr.append(train_acc)
+    test_accuracies_lr.append(test_acc)
+    # print(f"Iterációk: {n_iter}, Tanuló pontosság: {train_acc:.4f}, Teszt pontosság: {test_acc:.4f}") # Opcionális kiíratás
+
+# Figyelmeztetések visszaállítása
+warnings.filterwarnings("default", category=ConvergenceWarning)
+
+
+# Ábrázolás
+plt.figure(figsize=(10, 6))
+plt.plot(iterations, train_accuracies_lr, marker='o', label='Tanuló pontosság')
+plt.plot(iterations, test_accuracies_lr, marker='x', linestyle='--', label='Teszt pontosság')
+plt.xlabel("Iterációk száma (max_iter)")
+plt.ylabel("Pontosság")
+plt.title("Logisztikus Regresszió Pontossága az Iterációk Függvényében")
+plt.xscale('log') # Logaritmikus skála az x tengelyen a jobb láthatóságért
+plt.ylim(0.9, 1.02) # y tengely limitálása a releváns tartományra
+plt.grid(True, which="both", ls="--")
+plt.legend()
+plt.savefig(os.path.join(output_dir, 'logistic_regression_accuracy_vs_iterations.png')) # Mentés
+plt.show()
 
 
 # --- Döntési határok vizualizációja (2D PCA adatokon) ---
