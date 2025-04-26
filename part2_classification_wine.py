@@ -38,7 +38,7 @@ try:
     print("\nOsztályok eloszlása:")
     print(df['Class'].value_counts())
 
-    # --- Adat vizualizációja (PCA-val 2D-ben) ---
+    # --- Adat vizualizálásához (PCA-val 2D-ben) ---
     # Jellemzők és célváltozó szétválasztása a vizualizációhoz
     X_viz = df.drop('Class', axis=1)
     y_viz = df['Class']
@@ -80,8 +80,8 @@ try:
     models = {
         "Naive Bayes": GaussianNB(),
         "Support Vector Machine": SVC(random_state=42, probability=True), # probability=True lehet hasznos később
-        "Logistic Regression": LogisticRegression(random_state=42, max_iter=10000) # Növelt max_iter a konvergenciához
-        # "k-Nearest Neighbors": KNeighborsClassifier(n_neighbors=5) # k-NN-t ide is tehetjük
+        "Logistic Regression": LogisticRegression(random_state=42, max_iter=10000), # Növelt max_iter a konvergenciához
+        "k-Nearest Neighbors": KNeighborsClassifier(n_neighbors=5) # k-NN-t ide is tehetjük - KOMMENT ELTÁVOLÍTVA
     }
 
     # --- Modellek tanítása és kiértékelése ---
@@ -185,6 +185,49 @@ try:
     print(f"\nÖsszefoglaló táblázat mentve: {os.path.join(output_dir_part2, 'summary_results_table_part2.png')}")
     plt.show()
 
+    # --- Tanulási/Tesztelési Pontosság az Iterációk Függvényében (Logisztikus Regresszió) ---
+    print("\n--- Tanulási/Tesztelési Pontosság az Iterációk Függvényében (Logisztikus Regresszió) ---")
+
+    iterations_lr_part2 = [1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000] # Kipróbált iterációszámok
+    train_accuracies_lr_part2 = []
+    test_accuracies_lr_part2 = []
+
+    # Figyelmeztetések ideiglenes kikapcsolása (ConvergenceWarning miatt)
+    import warnings
+    from sklearn.exceptions import ConvergenceWarning
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+    for n_iter in iterations_lr_part2:
+        # Modell létrehozása az adott iterációszámmal
+        # Használjuk ugyanazt a random_state-et, mint a fő modellnél
+        lr_iter_part2 = LogisticRegression(random_state=42, max_iter=n_iter, solver='lbfgs')
+        # Tanítás
+        lr_iter_part2.fit(X_train_scaled, y_train)
+        # Pontosság számítása
+        train_acc = lr_iter_part2.score(X_train_scaled, y_train)
+        test_acc = lr_iter_part2.score(X_test_scaled, y_test)
+        train_accuracies_lr_part2.append(train_acc)
+        test_accuracies_lr_part2.append(test_acc)
+        # print(f"Iterációk: {n_iter}, Tanuló pontosság: {train_acc:.4f}, Teszt pontosság: {test_acc:.4f}") # Opcionális
+
+    # Figyelmeztetések visszaállítása
+    warnings.filterwarnings("default", category=ConvergenceWarning)
+
+    # Ábrázolás
+    plt.figure(figsize=(10, 6))
+    plt.plot(iterations_lr_part2, train_accuracies_lr_part2, marker='o', label='Tanuló pontosság')
+    plt.plot(iterations_lr_part2, test_accuracies_lr_part2, marker='x', linestyle='--', label='Teszt pontosság')
+    plt.xlabel("Iterációk száma (max_iter)")
+    plt.ylabel("Pontosság")
+    plt.title("Logisztikus Regresszió Pontossága az Iterációk Függvényében (Wine)")
+    plt.xscale('log') # Logaritmikus skála az x tengelyen
+    plt.ylim(0.9, 1.02) # y tengely limitálása a jobb láthatóságért
+    plt.grid(True, which="both", ls="--")
+    plt.legend()
+    plt.savefig(os.path.join(output_dir_part2, 'logistic_regression_accuracy_vs_iterations_part2.png')) # Mentés
+    print(f"LogReg iterációs ábra mentve: {os.path.join(output_dir_part2, 'logistic_regression_accuracy_vs_iterations_part2.png')}")
+    plt.show()
+
 
     # --- Hiperparaméter-hangolás (Példa: SVM 'C' és 'gamma' paraméterei) ---
     print("\n--- Hiperparaméter-hangolás (SVM) ---")
@@ -245,6 +288,47 @@ try:
     plt.savefig(os.path.join(output_dir_part2, 'confusion_matrix_svm_best_tuned.png')) # Mentés
     print(f"Legjobb SVM konfúziós mátrixa mentve: {os.path.join(output_dir_part2, 'confusion_matrix_svm_best_tuned.png')}")
     plt.show()
+
+    # --- Hiperparaméter-hangolás Eredményeinek Vizualizációja (SVM Heatmap) ---
+    print("\n--- SVM Hiperparaméter-hangolás Vizualizációja ---")
+
+    # Eredmények kinyerése a GridSearchCV-ből
+    results_df = pd.DataFrame(grid_search_svm.cv_results_)
+
+    # Csak a releváns oszlopok kiválasztása és típuskonverzió, ha szükséges
+    # A paraméter nevek a param_grid kulcsaiból származnak ('param_' előtaggal)
+    results_df = results_df[['param_C', 'param_gamma', 'mean_test_score']]
+    # A 'gamma' lehet string ('scale', 'auto') vagy float. A heatmaphez numerikus értékek kellenek.
+    # Egyszerűsítésként most csak a numerikus gamma értékekkel dolgozunk, ha vannak.
+    # Vagy átalakíthatnánk a stringeket is valamilyen numerikus reprezentációra, de az bonyolultabb.
+    # Itt most feltételezzük, hogy a param_grid csak numerikus gamma értékeket is tartalmazott,
+    # vagy a DataFrame képes kezelni a kevert típusokat a pivotáláshoz.
+    # A biztonság kedvéért konvertáljuk a pontszámot float-ra.
+    results_df['mean_test_score'] = results_df['mean_test_score'].astype(float)
+
+    # Pivot tábla létrehozása a heatmaphez
+    # A 'gamma' oszlop tartalmazhat stringeket ('scale', 'auto'), ezeket kezelni kell.
+    # Legegyszerűbb, ha a pivotálás előtt ezeket kiszűrjük vagy átalakítjuk.
+    # Most próbáljuk meg közvetlenül, hátha a pandas kezeli.
+    try:
+        scores = results_df.pivot(index='param_C', columns='param_gamma', values='mean_test_score')
+
+        plt.figure(figsize=(10, 6))
+        sns.heatmap(scores, annot=True, fmt=".4f", cmap="viridis") # fmt=".4f" a pontosság jobb megjelenítéséhez
+        plt.title('SVM Keresztvalidációs Pontosság (Heatmap)')
+        plt.xlabel('Gamma paraméter')
+        plt.ylabel('C paraméter')
+        plt.savefig(os.path.join(output_dir_part2, 'svm_tuning_heatmap.png')) # Mentés
+        print(f"SVM hangolás heatmap mentve: {os.path.join(output_dir_part2, 'svm_tuning_heatmap.png')}")
+        plt.show()
+
+    except ValueError as ve:
+        print(f"\nHiba a heatmap készítésekor: {ve}")
+        print("Lehetséges ok: A 'gamma' paraméter tartalmazott nem numerikus értékeket ('scale', 'auto'), amelyeket a pivot nem tudott kezelni.")
+        print("A heatmap nem készült el. Próbáld meg csak numerikus 'gamma' értékekkel a param_grid-ben.")
+    except KeyError as ke:
+         print(f"\nHiba a heatmap készítésekor: Hiányzó oszlop - {ke}")
+         print("Ellenőrizd a DataFrame oszlopneveit és a pivot függvény paramétereit.")
 
 
     # --- Döntési határok vizualizációja (2D PCA adatokon) ---
